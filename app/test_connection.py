@@ -18,15 +18,22 @@ app = Flask(__name__)
 # -----------> Process requests
 # ---------------------------->get_data()
 
+@app.route('/')
+def home():
+    return "Hello World!"
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
 
     if request.method == "POST":
         req = request.get_json(silent=True, force=True)
+        print('Request: ')
+        print(json.dumps(req, indent=4))
+        
         res = processRequest(req)
-
         res = json.dumps(res, indent=4)
+        print(res)
+        
         r = make_response(res)
         r.headers['Content-Type'] = 'application/json'
         return r
@@ -36,6 +43,7 @@ def processRequest(req):
 
     # Get all the Query Parameter
     query_response = req["queryResult"]
+    print('Query Response: ')
     print(query_response)
     text = query_response.get('queryText', None)
     parameters = query_response.get('parameters', None)

@@ -8,22 +8,15 @@ try:
 except Exception as e:
     print("Some modules are missing {}".format(e))
 
-
-# Flask app should start in global layout
 app = Flask(__name__)
-
-
-# whenever you make request /webhook
-# Following calls are made
-# webhook ->
-# -----------> Process requests
-# ---------------------------->get_data()
 
 @app.route('/')
 def home():
     return "Hello World!"
 
+
 @app.route('/webhook', methods=['POST'])
+
 def webhook():
 
     req = request.get_json(silent=True, force=True)
@@ -35,75 +28,109 @@ def webhook():
     except AttributeError:
         return 'json error'
 
-    if action == 'get_dest':
-        res = get_dest(req)
-    # elif action == 'weather.activity':
-    # res = weather_activity(req)
-    # elif action == 'weather.condition':
-    #     res = weather_condition(req)
-    # elif action == 'weather.outfit':
-    #     res = weather_outfit(req)
-    # elif action == 'weather.temperature':
-    #     res = weather_temperature(req)
+    if action == 'getBusRoute':
+        # bus_no = getParamFromParam(req,'bus_no')
+        orig,dest = getBusRoute(req)
+        reply = {'fulfillmentText': orig+' to '+dest}
+
+    elif action == 'GetRoute_ETA-direction':
+        
+        bus_no = getParamFromContext(req,'bus_no')
+        direction = getParamFromParam(req,'direction')
+        if direction=='origin':
+            dir='inbound'
+        else:
+            dir='outbound'
+        
+        stop_list = getRouteStop(bus_no,dir)
+        # d_stop_name = {k:getStopName(v) for k,v in enumerate(stop_list,1)}
+        stop_name_list = ['Stop '+str(i)+' '+getStopName(stop) for i,stop in enumerate(stop_list,1)]
+
+        # reply = {"fulfillmentMessages":[{"quickReplies":{"title":"Choose an option","quickReplies":[[i for i in stop_name_list]]},"platform":"TELEGRAM"},{"text":{"text":["Suggestion Chips"]}}]}
+        reply = {"fulfillmentMessages":[{"quickReplies":{"title":"Choose an option","quickReplies":[stop_name_list[0],stop_name_list[1],stop_name_list[2],stop_name_list[3]]},"platform":"TELEGRAM"},{"text":{"text":["Suggestion Chips"]}}]}
+         
+        print(reply)
+        # reply = {"fulfillmentText": dllm}
+
+
+    elif action == 'GetRoute_ETA_askDirection':
+        bus_no = getParamFromContext(req,'bus_no')
+        orig,dest = getOrigDest(bus_no)
+        reply = {"fulfillmentMessages":[{"quickReplies":{"title":"Choose an option","quickReplies":['Origin: '+orig,'Destination: '+dest]},"platform":"TELEGRAM"},{"text":{"text":["Suggestion Chips"]}}]}
+
+    elif action == 'get_direction':
+        reply = {"followupEventInput": {"name": "actions_intent_option","parameters": {"direction":"Wong Tai Sin"}}}
     else:
         log.error('Unexpected action.')
 
-    print('Action: ' + action)
-    print('Response: ' + res)
+    # print('Action: ' + action)
+    # print('Response: ' + res)
 
-    return make_response(jsonify({'fulfillmentText': res}))
+    return make_response(jsonify(reply))
 
-    # res = json.dumps(res, indent=4)
+def getParamFromParam(req,param):
+    return req['queryResult']['parameters'][param]
+
+def getParamFromContext(req,param): #e.g bus_no
+    return req['queryResult']['outputContexts'][0]['parameters'][param]
+
+def getBusRoute(req):
     
-    # r = make_response(res)
-    # r.headers['Content-Type'] = 'application/json'
-    # return r
-
-
-def get_dest(req):
-    """Returns a string containing text with a response to the user
-    with the weather forecast or a prompt for more information
-    Takes the city for the forecast and (optional) dates
-    uses the template responses found in weather_responses.py as templates
-    """
+    route_api = 'https://rt.data.gov.hk/v1/transport/citybus-nwfb/route/'
     parameters = req['queryResult']['parameters']
 
     print('Dialogflow Parameters:')
-    print(json.dumps(parameters, indent=4))
+    print(parameters['bus_no'])
+    # print(json.dumps(parameters, indent=4))
 
-    response = requests.get(
-        'https://rt.data.gov.hk/v1/transport/citybus-nwfb/route/NWFB/'+ parameters['bus_no']
-        # ,
-            # params=wwo_data
-    )
+    companyid = getCompanyid(parameters['bus_no'])
+    route_url = route_api+companyid+'/'+parameters['bus_no']
+    bus_route = requests.get(route_url).json()['data']
 
-    bus_data = response.json()['data']
+    orig_en = bus_route['orig_en']
+    dest_en = bus_route['dest_en']
+    
+    return (orig_en,dest_en)
 
-    # error = bus_data.get('error')
-    if bus_data:
-        return bus_data['dest_en']
-    else:
-        response = requests.get(
-        'https://rt.data.gov.hk/v1/transport/citybus-nwfb/route/CTB/'+ parameters['bus_no'])
-        bus_data = response.json()['data']
-        return bus_data['dest_en']
-        
-    # return response
+def getOrigDest(busno): # for busno from context
+    
+    route_api = 'https://rt.data.gov.hk/v1/transport/citybus-nwfb/route/'
+ 
+    companyid = getCompanyid(busno)
+    route_url = route_api+companyid+'/'+busno
+    bus_route = requests.get(route_url).json()['data']
+
+    orig_en = bus_route['orig_en']
+    dest_en = bus_route['dest_en']
+    
+    return (orig_en,dest_en)
+
+def getRouteStop(busno,dir):
+
+    routestop_api = 'https://rt.data.gov.hk/v1/transport/citybus-nwfb/route-stop/'
+    companyid = getCompanyid(busno)
+    routestop_url = routestop_api+companyid+'/'+busno+'/'+dir
+    bus_route = requests.get(routestop_url).json()['data']
+
+    return [bus_route[i]['stop'] for i in range(len(bus_route))]    
+
+def getStopName(stop_id):
+
+    stop_api = 'https://rt.data.gov.hk/v1/transport/citybus-nwfb/stop/'
+    stop_url = stop_api + stop_id
+    return requests.get(stop_url).json()['data']['name_en']
 
 
+def getCompanyid(bus_no):
 
-# def get_dest(req):
+    api_url = 'https://rt.data.gov.hk/v1/transport/citybus-nwfb/route/'
 
-#     # Get all the Query Parameter
-#     query_response = req["queryResult"]
-#     print('Query Response: ')
-#     print(query_response)
-#     text = query_response.get('queryText', None)
-#     parameters = query_response.get('parameters', None)
-
-#     res = get_data()
-
-#     return res
+    if requests.get(api_url+'NWFB/'+ bus_no).json()['data']:
+        return 'NWFB'
+    elif requests.get(api_url+'CTB/'+ bus_no).json()['data']:
+        return 'CTB'
+    # else:
+        # return 'Bus service for' + parameters['bus_no'] + ' may be shut down at the moment'
 
 
 # def get_data():

@@ -28,14 +28,21 @@ def webhook():
     except AttributeError:
         return 'json error'
 
+
     if action == 'getBusRoute':
         # bus_no = getParamFromParam(req,'bus_no')
         orig,dest = getBusRoute(req)
         reply = {'fulfillmentText': orig+' to '+dest}
 
-    elif action == 'GetRoute_ETA-direction':
+
+    elif action == 'route.entered_getDirection':
+        bus_no = getParamFromContext(req,'awaiting_bus_no','bus_no')
+        orig,dest = getOrigDest(bus_no)
+        reply = {"fulfillmentMessages":[{"quickReplies":{"title":"Choose a direction","quickReplies":['Origin: '+orig,'Destination: '+dest]},"platform":"TELEGRAM"},{"text":{"text":["Suggestion Chips"]}}]}
+
+    elif action == 'direction.selected_getStopList':
         
-        bus_no = getParamFromContext(req,'bus_no')
+        bus_no = getParamFromContext(req,'awaiting_bus_no','bus_no')
         direction = getParamFromParam(req,'direction')
         if direction=='origin':
             dir='inbound'
@@ -46,22 +53,22 @@ def webhook():
         # d_stop_name = {k:getStopName(v) for k,v in enumerate(stop_list,1)}
         stop_name_list = ['Stop '+str(i)+' '+getStopName(stop) for i,stop in enumerate(stop_list,1)]
 
-        # reply = {"fulfillmentMessages":[{"quickReplies":{"title":"Choose an option","quickReplies":[[i for i in stop_name_list]]},"platform":"TELEGRAM"},{"text":{"text":["Suggestion Chips"]}}]}
-        reply = {"fulfillmentMessages":[{"quickReplies":{"title":"Choose an option","quickReplies":[stop_name_list[0],stop_name_list[1],stop_name_list[2],stop_name_list[3]]},"platform":"TELEGRAM"},{"text":{"text":["Suggestion Chips"]}}]}
+        reply = {"fulfillmentMessages":[{"quickReplies":{"title":"Choose a bus stop","quickReplies":[stop_name_list[0],stop_name_list[1],stop_name_list[2]]},"platform":"TELEGRAM"},{"text":{"text":["Suggestion Chips"]}}]}
          
         print(reply)
         # reply = {"fulfillmentText": dllm}
+        # direction.selected_getStopList
+        # stop.selected_getETA
+        # route.entered_getDirection
+
+    elif action == 'stop.selected_getETA':
+
+        bus_no = getParamFromContext(req,'awaiting_bus_no','bus_no')
+        
 
 
-    elif action == 'GetRoute_ETA_askDirection':
-        bus_no = getParamFromContext(req,'bus_no')
-        orig,dest = getOrigDest(bus_no)
-        reply = {"fulfillmentMessages":[{"quickReplies":{"title":"Choose an option","quickReplies":['Origin: '+orig,'Destination: '+dest]},"platform":"TELEGRAM"},{"text":{"text":["Suggestion Chips"]}}]}
-
-    elif action == 'get_direction':
-        reply = {"followupEventInput": {"name": "actions_intent_option","parameters": {"direction":"Wong Tai Sin"}}}
     else:
-        log.error('Unexpected action.')
+        reply = {"fulfillmentText": 'Unexpected action.'}
 
     # print('Action: ' + action)
     # print('Response: ' + res)
@@ -71,8 +78,13 @@ def webhook():
 def getParamFromParam(req,param):
     return req['queryResult']['parameters'][param]
 
-def getParamFromContext(req,param): #e.g bus_no
-    return req['queryResult']['outputContexts'][0]['parameters'][param]
+# def getParamFromContext(req,param): #e.g bus_no
+#     return req['queryResult']['outputContexts'][0]['parameters'][param]
+
+def getParamFromContext(req,context,param):
+    outputContexts = req['queryResult']['outputContexts']
+    index = [item['name'].split('/')[-1] for item in outputContexts].index(context)
+    return outputContexts[index]['parameters'][param]
 
 def getBusRoute(req):
     
@@ -113,6 +125,14 @@ def getRouteStop(busno,dir):
     bus_route = requests.get(routestop_url).json()['data']
 
     return [bus_route[i]['stop'] for i in range(len(bus_route))]    
+
+def getBusETA(busno,stopid):
+    
+    eta_api = 'https://rt.data.gov.hk/v1/transport/citybus-nwfb/eta/'
+
+    companyid = getCompanyid(busno)
+    eta_url = eta_api+companyid+'/'+stopid+'/'+busno
+    eta = requests.get(eta_url).json()['data']
 
 def getStopName(stop_id):
 

@@ -7,6 +7,7 @@ try:
     import csv
     from operator import itemgetter
     from datetime import datetime
+    from requests_futures.sessions import FuturesSession
 
 except Exception as e:
     print("Some modules are missing {}".format(e))
@@ -53,10 +54,12 @@ def webhook():
         else:
             dir='outbound'
         
-        stop_list = getRouteStop(bus_no,dir)
-        stop_name_list = ['Stop '+str(i)+' '+getStopName(stop) for i,stop in enumerate(stop_list,1)]
+        all_stop = getRouteStop(bus_no,dir)
+        all_stop_name = makeStopRequest(all_stop)
 
-        reply = {"fulfillmentMessages":[{"quickReplies":{"title":"Choose a bus stop","quickReplies":[stop_name_list[0],stop_name_list[1],stop_name_list[2]]},"platform":"TELEGRAM"},{"text":{"text":["Suggestion Chips"]}}]}
+        stop_str_list = ['Stop '+str(i)+' '+stop_obj['data']['name_en'] for i,stop_obj in enumerate(all_stop_name,1)]
+
+        reply = {"fulfillmentMessages":[{"quickReplies":{"title":"Choose a bus stop","quickReplies":[stop_str_list[0],stop_str_list[1],stop_str_list[2],stop_str_list[3]]},"platform":"TELEGRAM"},{"text":{"text":["Suggestion Chips"]}}]}
         
 
     elif action == 'stop.selected_getETA':
@@ -82,9 +85,6 @@ def webhook():
 
 def getParamFromParam(req,param):
     return req['queryResult']['parameters'][param]
-
-# def getParamFromContext(req,param): #e.g bus_no
-#     return req['queryResult']['outputContexts'][0]['parameters'][param]
 
 def getParamFromContext(req,context,param):
     outputContexts = req['queryResult']['outputContexts']
@@ -159,12 +159,25 @@ def getBusETA(busno,stopno):    # return a list of eta time in minutes
     add exception handler for KMB timeslot issue
      """
 
-def getStopName(stop_id):
+# def getStopName(stop_id):
 
-    stop_api = 'https://rt.data.gov.hk/v1/transport/citybus-nwfb/stop/'
-    stop_url = stop_api + stop_id
-    return requests.get(stop_url).json()['data']['name_en']
+#     stop_api = 'https://rt.data.gov.hk/v1/transport/citybus-nwfb/stop/'
+#     stop_url = stop_api + stop_id
+#     return requests.get(stop_url).json()['data']['name_en']
 
+def makeStopRequest(stop_list):
+
+    session = FuturesSession(max_workers=16)
+    futures = [make_stop_request(session,stopid) for stopid in stop_list]
+    all_stops = []
+    for f in futures:
+        all_stops.append(f.result().data)
+    return all_stops
+
+def make_stop_request(session, stopid):
+    api_url = "https://rt.data.gov.hk/v1/transport/citybus-nwfb/stop/"
+    future = session.get(api_url+stopid, hooks={'response': response_hook,})
+    return future
 
 def getCompanyid(bus_no):
 
@@ -181,6 +194,10 @@ def timeDiff(time):
     fmt = '%Y-%m-%dT%H:%M:%S'
     d1 = datetime.strptime(time[:-6],fmt)
     return int((d1-datetime.now()).total_seconds()/60)
+
+def response_hook(resp, *args, **kwargs):
+    resp.data = resp.json()
+    
 
 
 #     return {

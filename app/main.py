@@ -4,6 +4,9 @@ try:
     import os
     from flask import Flask,request,make_response,jsonify
     import requests
+    import csv
+    from operator import itemgetter
+    from datetime import datetime
 
 except Exception as e:
     print("Some modules are missing {}".format(e))
@@ -40,6 +43,7 @@ def webhook():
         orig,dest = getOrigDest(bus_no)
         reply = {"fulfillmentMessages":[{"quickReplies":{"title":"Choose a direction","quickReplies":['Origin: '+orig,'Destination: '+dest]},"platform":"TELEGRAM"},{"text":{"text":["Suggestion Chips"]}}]}
 
+
     elif action == 'direction.selected_getStopList':
         
         bus_no = getParamFromContext(req,'awaiting_bus_no','bus_no')
@@ -50,22 +54,23 @@ def webhook():
             dir='outbound'
         
         stop_list = getRouteStop(bus_no,dir)
-        # d_stop_name = {k:getStopName(v) for k,v in enumerate(stop_list,1)}
         stop_name_list = ['Stop '+str(i)+' '+getStopName(stop) for i,stop in enumerate(stop_list,1)]
 
         reply = {"fulfillmentMessages":[{"quickReplies":{"title":"Choose a bus stop","quickReplies":[stop_name_list[0],stop_name_list[1],stop_name_list[2]]},"platform":"TELEGRAM"},{"text":{"text":["Suggestion Chips"]}}]}
-         
-        print(reply)
-        # reply = {"fulfillmentText": dllm}
-        # direction.selected_getStopList
-        # stop.selected_getETA
-        # route.entered_getDirection
-
-    elif action == 'stop.selected_getETA':
-
-        bus_no = getParamFromContext(req,'awaiting_bus_no','bus_no')
         
 
+    elif action == 'stop.selected_getETA':
+        
+        nth = {1:"First",2:"Second",3:"Third"}
+
+        bus_no = getParamFromContext(req,'awaiting_bus_no','bus_no')
+        stop_no = getParamFromParam(req,'number')
+        # print(stop_no)
+        eta_in_min = getBusETA(bus_no,stop_no)
+
+        res = '.\n'.join(nth[k]+' bus is coming in '+str(v)+' min(s)' for k,v in enumerate(eta_in_min,1))
+
+        reply = {"fulfillmentText": res}
 
     else:
         reply = {"fulfillmentText": 'Unexpected action.'}
@@ -124,15 +129,35 @@ def getRouteStop(busno,dir):
     routestop_url = routestop_api+companyid+'/'+busno+'/'+dir
     bus_route = requests.get(routestop_url).json()['data']
 
-    return [bus_route[i]['stop'] for i in range(len(bus_route))]    
+    stop_list = [bus_route[i]['stop'] for i in range(len(bus_route))]
 
-def getBusETA(busno,stopid):
+    with open('tmp_stop.csv', 'w') as csv_file:
+        wr = csv.writer(csv_file)
+        wr.writerow(stop_list)
+
+    return stop_list
+
+def getBusETA(busno,stopno):    # return a list of eta time in minutes
+
+    with open('tmp_stop.csv') as f:
+        reader = csv.reader(f)
+        row1 = next(reader)
+        stop_dict = {k:v for k,v in enumerate(row1)}
     
     eta_api = 'https://rt.data.gov.hk/v1/transport/citybus-nwfb/eta/'
-
     companyid = getCompanyid(busno)
+    stopid = stop_dict[stopno]
     eta_url = eta_api+companyid+'/'+stopid+'/'+busno
-    eta = requests.get(eta_url).json()['data']
+    eta_result = requests.get(eta_url).json()['data']
+
+    # sort by eta seq then return list of eta time
+    sorted_list = sorted([[eta_result[i]['eta_seq'],eta_result[i]['eta']] for i in range(len(eta_result))],key=itemgetter(1))
+    eta_time = list(map(itemgetter(1), sorted_list))
+    return list(map(timeDiff,eta_time))
+
+    """ 
+    add exception handler for KMB timeslot issue
+     """
 
 def getStopName(stop_id):
 
@@ -152,10 +177,11 @@ def getCompanyid(bus_no):
     # else:
         # return 'Bus service for' + parameters['bus_no'] + ' may be shut down at the moment'
 
+def timeDiff(time):
+    fmt = '%Y-%m-%dT%H:%M:%S'
+    d1 = datetime.strptime(time[:-6],fmt)
+    return int((d1-datetime.now()).total_seconds()/60)
 
-# def get_data():
-
-#     speech = "ng lun g ar dllm"
 
 #     return {
 #         "fulfillmentText": speech,

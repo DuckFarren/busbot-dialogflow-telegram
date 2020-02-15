@@ -42,7 +42,26 @@ def webhook():
     elif action == 'route.entered_getDirection':
         bus_no = getParamFromContext(req,'awaiting_bus_no','bus_no')
         orig,dest = getOrigDest(bus_no)
-        reply = {"fulfillmentMessages":[{"quickReplies":{"title":"Choose a direction","quickReplies":['Origin: '+orig,'Destination: '+dest]},"platform":"TELEGRAM"},{"text":{"text":["Suggestion Chips"]}}]}
+        reply = {"fulfillmentMessages":[
+                    {
+                        "quickReplies":{
+                            "title":"Choose a direction",
+                            "quickReplies":[
+                            "Origin: "+orig,
+                            "Destination: "+dest
+                            ]
+                        },
+                        "platform":"TELEGRAM"
+                    },
+                    {
+                        "text":{
+                            "text":[
+                            "Telegram Quick Reply"
+                            ]
+                        }
+                    }
+                ]
+                }
 
 
     elif action == 'direction.selected_getStopList':

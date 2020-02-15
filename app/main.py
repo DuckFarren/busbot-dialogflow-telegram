@@ -8,6 +8,7 @@ try:
     from operator import itemgetter
     from datetime import datetime
     from requests_futures.sessions import FuturesSession
+    from df_response_lib import telegram_response, fulfillment_response
 
 except Exception as e:
     print("Some modules are missing {}".format(e))
@@ -35,13 +36,28 @@ def webhook():
 
     if action == 'getBusRoute':
         # bus_no = getParamFromParam(req,'bus_no')
-        orig,dest = getBusRoute(req)
-        reply = {'fulfillmentText': orig+' to '+dest}
+
+        fulfillmentText = 'Response from webhook'
+
+        tg = telegram_response()
+        tg_tr = tg.text_response(fulfillmentText)
+
+        route_od = getBusRoute(req)
+        tg_qr = tg.quick_replies('Where are you heading?',route_od)
+
+        # reply = {'fulfillmentText': orig+' to '+dest}
+
+        ff_response = fulfillment_response()
+        ff_text = ff_response.fulfillment_text(fulfillmentText)
+        ff_messages = ff_response.fulfillment_messages([tg_tr, tg_qr])
+        
+        reply = ff_response.main_response(ff_text, ff_messages)
 
 
     elif action == 'route.entered_getDirection':
         bus_no = getParamFromContext(req,'awaiting_bus_no','bus_no')
         orig,dest = getOrigDest(bus_no)
+
         reply = {"fulfillmentMessages":[
                     {
                         "quickReplies":{
@@ -115,18 +131,15 @@ def getBusRoute(req):
     route_api = 'https://rt.data.gov.hk/v1/transport/citybus-nwfb/route/'
     parameters = req['queryResult']['parameters']
 
-    print('Dialogflow Parameters:')
-    print(parameters['bus_no'])
-    # print(json.dumps(parameters, indent=4))
-
     companyid = getCompanyid(parameters['bus_no'])
     route_url = route_api+companyid+'/'+parameters['bus_no']
     bus_route = requests.get(route_url).json()['data']
 
-    orig_en = bus_route['orig_en']
-    dest_en = bus_route['dest_en']
-    
-    return (orig_en,dest_en)
+    route_od = []
+    route_od.append(bus_route['orig_en'])
+    route_od.append(bus_route['dest_en'])
+
+    return route_od
 
 def getOrigDest(busno): # for busno from context
     

@@ -38,8 +38,6 @@ def webhook():
 
         bus_no = getParamFromParam(req,'bus_no')
         route_od = getBusRoute(req,bus_no)
-        fulfillmentText = 'Bus is going from ' + route_od[0] + ' to ' + route_od[1]
-
         reply = {'fulfillmentText': 'Bus is going from ' + route_od[0] + ' to ' + route_od[1] }
 
     elif action == 'route.entered_getDirection':
@@ -54,8 +52,6 @@ def webhook():
         # create telegram quick replies for suggestions
         tg = telegram_response()
         tg_qr = tg.quick_replies(fulfillmentText,[orig_en,dest_en])
-        print(orig_en)
-        print(dest_en)
 
         ff_response = fulfillment_response()
         ff_text = ff_response.fulfillment_text(fulfillmentText)
@@ -74,23 +70,13 @@ def webhook():
             dir='outbound'
         
         all_stop = getRouteStop(bus_no,dir)
-        all_stop_name = makeStopRequest(all_stop)
-
-        stop_str_list = ['Stop '+str(i)+' '+stop_obj['data']['name_en'] for i,stop_obj in enumerate(all_stop_name,1)]
-
-        # reply = {"fulfillmentMessages":[{"quickReplies":{"title":"Choose a bus stop","quickReplies":[stop_str_list[0],stop_str_list[1],stop_str_list[2],stop_str_list[3]]},"platform":"TELEGRAM"},{"text":{"text":["Suggestion Chips"]}}]}
+        all_stop_name_json = makeStopRequest(all_stop)
+        stop_str_list = [str(i)+'. '+stop_obj['data']['name_en'] for i,stop_obj in enumerate(all_stop_name_json,1)]
         
-        fulfillmentText = 'Which bus stop are you at?'
-
-        tg = telegram_response()
-        tg_qr = tg.quick_replies(fulfillmentText,stop_str_list)
-
-        ff_response = fulfillment_response()
-        ff_text = ff_response.fulfillment_text(fulfillmentText)
-        ff_messages = ff_response.fulfillment_messages([tg_qr])
+        fulfillmentText = 'Which bus stop are you at?\n'+'\n'.join([stop_name for stop_name in stop_str_list])
+        reply = {'fulfillmentText': fulfillmentText }
         
-        reply = ff_response.main_response(ff_text, ff_messages)
-    
+
     elif action == 'stop.selected_getETA':
         
         nth = {1:"First",2:"Second",3:"Third"}
@@ -106,11 +92,33 @@ def webhook():
         else:
             reply = {"fulfillmentText": 'Sorry, the last bus has departed at the bus stop.'}
 
+
+    elif action == 'getBusStopLocation':
+        
+        stop_no = getParamFromContext(req,'awaiting_bus_no','number')
+        lat,long = getStopLocation(stop_no)
+
+        fulfillmentText = 'location'
+        tg = telegram_response()
+
+        custom_payload = {
+        "payload": {
+          "telegram": {
+            "text": "Here is the bus stop! [Google Map](https://maps.google.com/?q="+lat+","+long+")",
+            "parse_mode": "Markdown"
+          }
+        },
+        "platform": "TELEGRAM"
+      }
+
+        ff_response = fulfillment_response()
+        ff_text = ff_response.fulfillment_text(fulfillmentText)
+        ff_messages = ff_response.fulfillment_messages([custom_payload])
+        
+        reply = ff_response.main_response(ff_text, ff_messages)
+        
     else:
         reply = {"fulfillmentText": 'Unexpected action.'}
-
-    # print('Action: ' + action)
-    # print('Response: ' + res)
 
     return make_response(jsonify(reply))
 
@@ -154,10 +162,7 @@ def getRouteStop(busno,dir):
 
 def getBusETA(busno,stopno):    # return a list of eta time in minutes
 
-    with open('tmp_stop.csv') as f:
-        reader = csv.reader(f)
-        row1 = next(reader)
-        stop_dict = {k:v for k,v in enumerate(row1)}
+    stop_dict = StopFiletoDict()
     
     eta_api = 'https://rt.data.gov.hk/v1/transport/citybus-nwfb/eta/'
     companyid = getCompanyid(busno)
@@ -176,6 +181,26 @@ def getBusETA(busno,stopno):    # return a list of eta time in minutes
     """ 
     add exception handler for KMB timeslot issue
      """
+
+def getStopLocation(stopno):
+
+    stop_dict = StopFiletoDict()
+    stopid = stop_dict[stopno]
+    stop_api = "https://rt.data.gov.hk/v1/transport/citybus-nwfb/stop/"
+    stop_url = stop_api+stopid
+    stop_result = requests.get(stop_url).json()['data']
+    stoploc = []
+    stoploc.append(stop_result['lat'])
+    stoploc.append(stop_result['long'])
+    return stoploc
+
+def StopFiletoDict():
+
+    with open('tmp_stop.csv') as f:
+        reader = csv.reader(f)
+        row1 = next(reader)
+        stop_dict = {k:v for k,v in enumerate(row1)}
+    return stop_dict
 
 def makeStopRequest(stop_list):
 

@@ -8,6 +8,7 @@ try:
     from operator import itemgetter
     from datetime import datetime
     from requests_futures.sessions import FuturesSession
+    from df_response_lib import telegram_response, fulfillment_response
 
 except Exception as e:
     print("Some modules are missing {}".format(e))
@@ -34,15 +35,33 @@ def webhook():
 
 
     if action == 'getBusRoute':
-        # bus_no = getParamFromParam(req,'bus_no')
-        orig,dest = getBusRoute(req)
-        reply = {'fulfillmentText': orig+' to '+dest}
 
+        bus_no = getParamFromParam(req,'bus_no')
+        route_od = getBusRoute(req,bus_no)
+        fulfillmentText = 'Bus is going from ' + route_od[0] + ' to ' + route_od[1]
+
+        reply = {'fulfillmentText': 'Bus is going from ' + route_od[0] + ' to ' + route_od[1] }
 
     elif action == 'route.entered_getDirection':
+
         bus_no = getParamFromContext(req,'awaiting_bus_no','bus_no')
-        orig,dest = getOrigDest(bus_no)
-        reply = {"fulfillmentMessages":[{"quickReplies":{"title":"Choose a direction","quickReplies":['Origin: '+orig,'Destination: '+dest]},"platform":"TELEGRAM"},{"text":{"text":["Suggestion Chips"]}}]}
+        route_od = getBusRoute(req,bus_no)
+        orig_en = 'Origin: '+route_od[0]
+        dest_en = 'Destination: '+route_od[1]
+
+        fulfillmentText = 'Where are you heading off to?'
+
+        # create telegram quick replies for suggestions
+        tg = telegram_response()
+        tg_qr = tg.quick_replies(fulfillmentText,[orig_en,dest_en])
+        print(orig_en)
+        print(dest_en)
+
+        ff_response = fulfillment_response()
+        ff_text = ff_response.fulfillment_text(fulfillmentText)
+        ff_messages = ff_response.fulfillment_messages([tg_qr])
+        
+        reply = ff_response.main_response(ff_text, ff_messages)
 
 
     elif action == 'direction.selected_getStopList':
@@ -59,9 +78,19 @@ def webhook():
 
         stop_str_list = ['Stop '+str(i)+' '+stop_obj['data']['name_en'] for i,stop_obj in enumerate(all_stop_name,1)]
 
-        reply = {"fulfillmentMessages":[{"quickReplies":{"title":"Choose a bus stop","quickReplies":[stop_str_list[0],stop_str_list[1],stop_str_list[2],stop_str_list[3]]},"platform":"TELEGRAM"},{"text":{"text":["Suggestion Chips"]}}]}
+        # reply = {"fulfillmentMessages":[{"quickReplies":{"title":"Choose a bus stop","quickReplies":[stop_str_list[0],stop_str_list[1],stop_str_list[2],stop_str_list[3]]},"platform":"TELEGRAM"},{"text":{"text":["Suggestion Chips"]}}]}
         
+        fulfillmentText = 'Which bus stop are you at?'
 
+        tg = telegram_response()
+        tg_qr = tg.quick_replies(fulfillmentText,stop_str_list)
+
+        ff_response = fulfillment_response()
+        ff_text = ff_response.fulfillment_text(fulfillmentText)
+        ff_messages = ff_response.fulfillment_messages([tg_qr])
+        
+        reply = ff_response.main_response(ff_text, ff_messages)
+    
     elif action == 'stop.selected_getETA':
         
         nth = {1:"First",2:"Second",3:"Third"}
@@ -71,9 +100,11 @@ def webhook():
         # print(stop_no)
         eta_in_min = getBusETA(bus_no,stop_no)
 
-        res = '.\n'.join(nth[k]+' bus is coming in '+str(v)+' min(s)' for k,v in enumerate(eta_in_min,1))
-
-        reply = {"fulfillmentText": res}
+        if eta_in_min != -1:
+            res = '.\n'.join(nth[k]+' bus is coming in '+str(v)+' min(s)' for k,v in enumerate(eta_in_min,1))
+            reply = {"fulfillmentText": res}
+        else:
+            reply = {"fulfillmentText": 'Sorry, the last bus has departed at the bus stop.'}
 
     else:
         reply = {"fulfillmentText": 'Unexpected action.'}
@@ -91,36 +122,20 @@ def getParamFromContext(req,context,param):
     index = [item['name'].split('/')[-1] for item in outputContexts].index(context)
     return outputContexts[index]['parameters'][param]
 
-def getBusRoute(req):
+def getBusRoute(req,busno):
     
     route_api = 'https://rt.data.gov.hk/v1/transport/citybus-nwfb/route/'
     parameters = req['queryResult']['parameters']
 
-    print('Dialogflow Parameters:')
-    print(parameters['bus_no'])
-    # print(json.dumps(parameters, indent=4))
-
-    companyid = getCompanyid(parameters['bus_no'])
-    route_url = route_api+companyid+'/'+parameters['bus_no']
-    bus_route = requests.get(route_url).json()['data']
-
-    orig_en = bus_route['orig_en']
-    dest_en = bus_route['dest_en']
-    
-    return (orig_en,dest_en)
-
-def getOrigDest(busno): # for busno from context
-    
-    route_api = 'https://rt.data.gov.hk/v1/transport/citybus-nwfb/route/'
- 
     companyid = getCompanyid(busno)
     route_url = route_api+companyid+'/'+busno
     bus_route = requests.get(route_url).json()['data']
 
-    orig_en = bus_route['orig_en']
-    dest_en = bus_route['dest_en']
-    
-    return (orig_en,dest_en)
+    route_od = []
+    route_od.append(bus_route['orig_en'])
+    route_od.append(bus_route['dest_en'])
+
+    return route_od
 
 def getRouteStop(busno,dir):
 
@@ -150,20 +165,17 @@ def getBusETA(busno,stopno):    # return a list of eta time in minutes
     eta_url = eta_api+companyid+'/'+stopid+'/'+busno
     eta_result = requests.get(eta_url).json()['data']
 
-    # sort by eta seq then return list of eta time
-    sorted_list = sorted([[eta_result[i]['eta_seq'],eta_result[i]['eta']] for i in range(len(eta_result))],key=itemgetter(1))
-    eta_time = list(map(itemgetter(1), sorted_list))
-    return list(map(timeDiff,eta_time))
+    if len(eta_result)>0:
+        # sort by eta seq then return list of eta time
+        sorted_list = sorted([[eta_result[i]['eta_seq'],eta_result[i]['eta']] for i in range(len(eta_result))],key=itemgetter(1))
+        eta_time = list(map(itemgetter(1), sorted_list))
+        return list(map(timeDiff,eta_time))
+    else:
+        return -1
 
     """ 
     add exception handler for KMB timeslot issue
      """
-
-# def getStopName(stop_id):
-
-#     stop_api = 'https://rt.data.gov.hk/v1/transport/citybus-nwfb/stop/'
-#     stop_url = stop_api + stop_id
-#     return requests.get(stop_url).json()['data']['name_en']
 
 def makeStopRequest(stop_list):
 
@@ -187,8 +199,6 @@ def getCompanyid(bus_no):
         return 'NWFB'
     elif requests.get(api_url+'CTB/'+ bus_no).json()['data']:
         return 'CTB'
-    # else:
-        # return 'Bus service for' + parameters['bus_no'] + ' may be shut down at the moment'
 
 def timeDiff(time):
     fmt = '%Y-%m-%dT%H:%M:%S'
@@ -198,12 +208,6 @@ def timeDiff(time):
 def response_hook(resp, *args, **kwargs):
     resp.data = resp.json()
     
-
-
-#     return {
-#         "fulfillmentText": speech,
-#     }
-
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))

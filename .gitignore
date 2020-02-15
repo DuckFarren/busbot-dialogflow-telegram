@@ -1,3 +1,4 @@
 
 .vscode/settings.json
 app/tmp_stop.csv
+app/__pycache__/df_response_lib.cpython-38.pyc

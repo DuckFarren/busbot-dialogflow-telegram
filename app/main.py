@@ -64,7 +64,8 @@ def webhook():
         
         bus_no = getParamFromContext(req,'awaiting_bus_no','bus_no')
         direction = getParamFromParam(req,'direction')
-        if direction=='origin':
+        
+        if direction[0].strip('\:').lower()=='origin':
             dir='inbound'
         else:
             dir='outbound'
@@ -83,8 +84,7 @@ def webhook():
 
         bus_no = getParamFromContext(req,'awaiting_bus_no','bus_no')
         stop_no = getParamFromParam(req,'number')
-        # print(stop_no)
-        eta_in_min = getBusETA(bus_no,stop_no)
+        eta_in_min = getBusETA(bus_no,int(stop_no))
 
         if eta_in_min != -1:
             res = '.\n'.join(nth[k]+' bus is coming in '+str(v)+' min(s)' for k,v in enumerate(eta_in_min,1))
@@ -163,10 +163,9 @@ def getRouteStop(busno,dir):
 def getBusETA(busno,stopno):    # return a list of eta time in minutes
 
     stop_dict = StopFiletoDict()
-    
     eta_api = 'https://rt.data.gov.hk/v1/transport/citybus-nwfb/eta/'
     companyid = getCompanyid(busno)
-    stopid = stop_dict[stopno]
+    stopid = stop_dict[stopno-1]
     eta_url = eta_api+companyid+'/'+stopid+'/'+busno
     eta_result = requests.get(eta_url).json()['data']
 

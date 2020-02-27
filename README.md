@@ -1,2 +1,3 @@
 # busbot-python-dialogflow
- Bus Info Chatbot 
+ Citibus/NWFB Bus ETA Chatbot using Dialogflow + Flask webhook
+ Integrated with Telegram bot

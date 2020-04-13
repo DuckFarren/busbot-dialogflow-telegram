@@ -1,4 +1,8 @@
 
-.vscode/settings.json
+.vscode/
 app/tmp_stop.csv
-app/__pycache__/df_response_lib.cpython-38.pyc
+app/__pycache__/
+app/.ipynb_checkpoints/
+app/static/
+app/templates/
+venv/
